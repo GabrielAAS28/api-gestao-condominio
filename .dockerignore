@@ -1,0 +1,13 @@
+node_modules
+dist
+.git
+.gitignore
+*.md
+.env
+.env.*
+!.env.example
+uploads/*
+!uploads/**/.gitkeep
+coverage
+.vscode
+.idea

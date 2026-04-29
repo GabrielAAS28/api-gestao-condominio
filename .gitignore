@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+pnpm-lock.yaml
+yarn.lock
+
+# Build
+dist/
+build/
+
+# Logs
+*.log
+logs/
+
+# Env
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Prisma
+prisma/migrations/**/migration_lock.toml
+
+# Uploads (conteúdo é volátil, não versionar)
+uploads/**/*
+!uploads/**/.gitkeep
+
+# Coverage
+coverage/
+*.lcov
+
+# Tests
+.nyc_output/
