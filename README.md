@@ -305,4 +305,6 @@ Veja o passo-a-passo completo em **[`DEPLOY-VPS.md`](DEPLOY-VPS.md)**:
 
 ---
 
-<sub>Projeto pessoal/acadêmico — Gabriel Amorim de Aragão Souza · 2026</sub>
+Este software é um produto comercial.
+
+Copyright (c) 2025 Horizon AJ Soluções Digitais Ltda. Todos os direitos reservados.
