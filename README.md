@@ -305,4 +305,4 @@ Veja o passo-a-passo completo em **[`DEPLOY-VPS.md`](DEPLOY-VPS.md)**:
 
 ---
 
-<sub>Projeto pessoal — Gabriel Antônio Soares · 2026</sub>
+<sub>Projeto pessoal/acadêmico — Gabriel Amorim de Aragão Souza · 2026</sub>
