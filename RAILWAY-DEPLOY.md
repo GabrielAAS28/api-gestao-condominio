@@ -58,34 +58,67 @@ injeta e a aplicação já lê `process.env.PORT`.
 
 ## 3. Como o deploy funciona
 
-1. `railway.json` manda usar o `Dockerfile` (multi-stage, roda como usuário `node`).
-2. No boot do container: `prisma migrate deploy && node dist/main`.
-3. O Railway faz health check em `/api/health` (timeout 300s).
-4. Falhou? Restart automático, até 10 tentativas.
+**Quem faz o deploy é o Railway, não o GitHub Actions.**
+
+`Service → Settings → Source`:
+
+| Opção | Estado exigido |
+|---|---|
+| Auto deploys when pushed to GitHub | ligado, branch `main` |
+| **Wait for CI** | **ligado** |
+
+Com *Wait for CI* ligado, o Railway só promove o deploy depois que as GitHub
+Actions passarem. É isso que impede um merge com CI vermelho de chegar em
+produção — por isso **não existe `RAILWAY_TOKEN` neste repositório**.
+
+Sequência:
+
+1. Merge na `main` → o CI roda.
+2. CI verde → o Railway inicia o build.
+3. `railway.json` manda usar o `Dockerfile` (multi-stage, roda como `node`).
+4. No boot do container: `prisma migrate deploy && node dist/main`.
+5. O Railway faz health check em `/api/health` (timeout 300s) antes de
+   promover o deploy. Falhou? Restart automático, até 10 tentativas.
+6. O workflow `cd-railway.yml` roda um smoke test no domínio público.
 
 As migrations são aplicadas **automaticamente** no boot. Migration destrutiva
 vai executar sem confirmação — revise antes do merge.
 
+> Se a migration falhar, o `&&` impede o `node dist/main` de rodar: o
+> container morre e o Railway não promove o deploy. Não mexa nesse `&&`.
+
 ---
 
-## 4. Secrets e variables do GitHub
+## 4. Variables do GitHub
 
-`Settings → Secrets and variables → Actions`
-
-**Secrets**
-
-| Nome | Onde obter |
-|---|---|
-| `RAILWAY_TOKEN` | Railway → Project Settings → Tokens → *Create Token* |
-
-**Variables** (não são segredo)
+`Settings → Secrets and variables → Actions → aba Variables`
 
 | Nome | Valor |
 |---|---|
-| `RAILWAY_SERVICE` | Nome exato do serviço no Railway (ex.: `api-gestao-condominio`) |
-| `RAILWAY_PUBLIC_URL` | URL pública, sem barra final (ex.: `https://api.condigtal.up.railway.app`) |
+| `RAILWAY_PUBLIC_URL` | URL pública, sem barra final (ex.: `https://api-gestao-condominio-production.up.railway.app`) |
 
-Sem `RAILWAY_PUBLIC_URL` o health check pós-deploy é pulado (não falha).
+Sem ela o smoke test é pulado (não falha o workflow).
+
+**Nenhum secret é necessário.** Se `RAILWAY_TOKEN` ou `RAILWAY_SERVICE`
+ainda existirem de uma configuração anterior, podem ser removidos — um
+token de deploy de longa duração guardado no CI é superfície de ataque
+sem contrapartida, já que o deploy não passa mais por aqui.
+
+### O que o smoke test valida — e o que não valida
+
+Ele confirma que o **domínio público** está servindo a API, coisa que o
+health check interno do Railway não cobre (aquele testa o container, não a
+borda e o roteamento).
+
+Ele **não** identifica qual versão respondeu. O `/api/health` devolve uma
+versão estática, não o commit. Se o deploy ainda estiver em andamento, o
+domínio pode estar servindo a versão anterior e o check passa mesmo assim.
+
+Ou seja: **falha é sinal confiável de problema; sucesso é sinal fraco.**
+
+Para fechar essa lacuna seria preciso o health devolver o SHA do commit
+(build arg no `Dockerfile` + campo no `AppController`) e o workflow comparar
+com o SHA que o disparou.
 
 ---
 
@@ -103,8 +136,16 @@ docker build -t condigtal-api:test .
 
 # 4. Crie o Volume em /app/uploads
 
-# 5. Faça o merge na main — o CD dispara sozinho após o CI passar.
+# 5. Ligue "Wait for CI" em Settings > Source
+
+# 6. Faça o merge na main — o Railway aguarda o CI e deploya sozinho.
 ```
+
+> **Cuidado com o health check enganoso.** O `/api/health` executa
+> `SELECT 1`, que funciona mesmo num banco sem nenhuma tabela. Se o serviço
+> subir antes das migrations existirem no repositório, ele responde
+> `status: ok` com o schema vazio. Confirme com uma chamada que realmente
+> leia dados antes de considerar o ambiente pronto.
 
 Seed inicial (opcional, uma vez):
 
