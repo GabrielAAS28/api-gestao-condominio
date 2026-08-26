@@ -1,0 +1,109 @@
+name: CD — Deploy Railway
+
+# Dispara SOMENTE quando o workflow "CI" terminar com sucesso na branch main.
+# Isso garante que nada vai para producao com a suite vermelha, mesmo que
+# alguem faca push direto na main.
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      motivo:
+        description: 'Motivo do deploy manual'
+        required: false
+        default: 'Deploy manual'
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Deploy para Railway
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Só roda se o CI passou (ou se foi acionado manualmente).
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    # Crie este Environment em Settings > Environments para exigir
+    # aprovacao manual antes de cada deploy (opcional, mas recomendado).
+    environment:
+      name: production
+      url: ${{ vars.RAILWAY_PUBLIC_URL }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Em workflow_run o ref default e o da branch base; fixamos o SHA
+          # exato que passou no CI para deployar o commit certo.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Instalar Railway CLI
+        run: npm i -g @railway/cli@latest
+
+      - name: Conferir credenciais
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: |
+          if [ -z "$RAILWAY_TOKEN" ]; then
+            echo "::error::Secret RAILWAY_TOKEN nao configurado no repositorio."
+            exit 1
+          fi
+          railway whoami || echo "Token de projeto em uso (whoami nao se aplica)."
+
+      - name: Deploy
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          RAILWAY_SERVICE: ${{ vars.RAILWAY_SERVICE }}
+        run: |
+          set -euo pipefail
+          if [ -n "${RAILWAY_SERVICE:-}" ]; then
+            railway up --service "$RAILWAY_SERVICE" --ci
+          else
+            railway up --ci
+          fi
+
+      # As migrations rodam no boot do container (CMD do Dockerfile).
+      # Este passo confirma que o servico voltou saudavel depois disso.
+      - name: Health check pos-deploy
+        if: ${{ vars.RAILWAY_PUBLIC_URL != '' }}
+        env:
+          BASE_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
+        run: |
+          set -euo pipefail
+          echo "Aguardando ${BASE_URL}/api/health ficar saudavel..."
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 10 "${BASE_URL}/api/health" 2>/dev/null || true)
+            if echo "$body" | grep -q '"status":"ok"'; then
+              echo "Servico saudavel: $body"
+              exit 0
+            fi
+            echo "tentativa $i/30 — ainda nao saudavel"
+            sleep 10
+          done
+          echo "::error::Health check falhou apos ~5min. Verifique os logs no Railway."
+          exit 1
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Deploy Railway"
+            echo ""
+            echo "- Commit: \`${{ github.event.workflow_run.head_sha || github.sha }}\`"
+            echo "- Status: ${{ job.status }}"
+            echo "- URL: ${{ vars.RAILWAY_PUBLIC_URL || 'nao configurada' }}"
+          } >> "$GITHUB_STEP_SUMMARY"
