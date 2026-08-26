@@ -2,6 +2,7 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import helmet from 'helmet';
+// eslint-disable-next-line @typescript-eslint/no-require-imports -- forma idiomatica de importar CJS (cookie-parser) sob esModuleInterop
 import cookieParser = require('cookie-parser');
 import type { Request, Response, NextFunction } from 'express';
 import { AppModule } from './app.module';

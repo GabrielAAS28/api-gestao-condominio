@@ -1,0 +1,91 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# Configuracao do CodeRabbit AI — review automatico de Pull Requests.
+# Docs: https://docs.coderabbit.ai/guides/configure-coderabbit
+
+language: pt-BR
+early_access: false
+
+reviews:
+  # "assertive" aponta mais problemas; use "chill" se ficar ruidoso demais.
+  profile: assertive
+
+  # Faz o CodeRabbit postar "Request changes" quando achar problema serio.
+  # Combinado com a branch protection, isso segura o merge.
+  request_changes_workflow: true
+
+  high_level_summary: true
+  high_level_summary_placeholder: '@coderabbitai summary'
+  review_status: true
+  collapse_walkthrough: false
+  poem: false
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+
+  path_filters:
+    - '!**/dist/**'
+    - '!**/node_modules/**'
+    - '!**/coverage/**'
+    - '!**/uploads/**'
+    - '!**/package-lock.json'
+  path_instructions:
+    - path: 'src/**/*.ts'
+      instructions: >-
+        Projeto NestJS 10 + Prisma. Priorize nesta ordem:
+        (1) Seguranca: endpoints sem @UseGuards ou sem @Public explicito;
+        segredos hardcoded; dados sensiveis em log; falta de validacao via
+        class-validator nos DTOs; risco de IDOR (acesso a recurso de outro
+        condominio sem checar o vinculo do usuario).
+        (2) Corretude com Prisma: queries N+1, falta de transacao em
+        operacoes multi-tabela, uso de $queryRawUnsafe com interpolacao.
+        (3) Contrato HTTP: status codes corretos, tratamento de erro via
+        exception filters, e nao vazar stack trace em producao.
+        (4) Sinalize `any` em fronteiras de API e Promises sem await.
+
+    - path: 'src/**/*.dto.ts'
+      instructions: >-
+        DTOs devem ter decorators do class-validator em TODOS os campos
+        (a app roda ValidationPipe com whitelist + forbidNonWhitelisted).
+        Campo sem decorator e silenciosamente descartado — sinalize sempre.
+
+    - path: 'prisma/schema.prisma'
+      instructions: >-
+        Verifique indices em colunas usadas em filtros e joins, onDelete
+        coerente nas relations, e se a mudanca e retrocompativel. Alteracao
+        destrutiva (drop/rename de coluna) exige migration em duas etapas.
+
+    - path: 'prisma/migrations/**'
+      instructions: >-
+        Migrations sao aplicadas automaticamente no deploy. Sinalize
+        qualquer comando destrutivo (DROP, TRUNCATE, ALTER ... NOT NULL sem
+        default) que possa causar perda de dados ou downtime.
+
+    - path: '.github/workflows/**'
+      instructions: >-
+        Verifique actions sem versao fixada, uso indevido de secrets em
+        `pull_request_target`, e permissions amplas demais no GITHUB_TOKEN.
+
+    - path: 'Dockerfile'
+      instructions: >-
+        Verifique se roda como usuario nao-root, se nao copia .env ou
+        segredos para a imagem, e se as camadas aproveitam cache.
+
+  tools:
+    eslint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    hadolint:
+      enabled: true
+    actionlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    markdownlint:
+      enabled: false
+
+chat:
+  auto_reply: true

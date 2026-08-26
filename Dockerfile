@@ -5,20 +5,21 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
-# OpenSSL é requerido pelo Prisma em alpine
+# OpenSSL e requerido pelo Prisma em alpine
 RUN apk add --no-cache openssl
 
-# Instala deps (cache de layer). Usa `npm ci` se houver lockfile, senão `npm install`.
+# Instala deps (cache de layer). O lockfile e obrigatorio para builds reproduziveis.
 COPY package*.json ./
-COPY prisma ./prisma
-RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
+RUN npm ci
 
-# Copia o resto e faz o build
+# prisma/ entra DEPOIS do npm ci de proposito: nao ha postinstall que dependa
+# dele, entao mexer numa migration nao precisa invalidar a layer de deps.
+COPY prisma ./prisma
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
 RUN npx prisma generate && npm run build
 
-# Compila o seed (prisma/seed.ts) para JS, para rodar em produção sem ts-node
+# Compila o seed (prisma/seed.ts) para JS, para rodar em producao sem ts-node
 RUN npx tsc prisma/seed.ts \
     --outDir prisma \
     --module commonjs \
@@ -35,24 +36,33 @@ ENV NODE_ENV=production
 
 RUN apk add --no-cache openssl tini
 
-# Instala apenas deps de produção
+# Instala apenas deps de producao. O CLI `prisma` esta em `dependencies`
+# (e nao em devDependencies) justamente para que `prisma migrate deploy`
+# funcione no boot do container sem baixar nada do registry.
 COPY package*.json ./
-COPY prisma ./prisma
-RUN if [ -f package-lock.json ]; then npm ci --omit=dev; else npm install --omit=dev; fi \
- && npx prisma generate \
- && npm cache clean --force
+RUN npm ci --omit=dev && npm cache clean --force
 
-# Copia build e pastas necessárias
+# Mesma logica do builder: prisma/ depois das deps, para preservar o cache.
+COPY prisma ./prisma
+RUN ./node_modules/.bin/prisma generate
+
+# Copia o build e o Prisma Client gerado
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 # Copia o seed compilado (seed.js) por cima do prisma/seed.ts da imagem runner
 COPY --from=builder /app/prisma/seed.js ./prisma/seed.js
 
-# Cria pasta de uploads
+# Falha o build cedo se as migrations nao vieram junto: sem elas o
+# `migrate deploy` roda vazio e a API sobe apontando para um banco sem tabelas.
+RUN test -d ./prisma/migrations && ls -1 ./prisma/migrations | grep -q . \
+    || (echo "ERRO: prisma/migrations esta vazio ou ausente." && exit 1)
+
+# Pasta de uploads. Em producao monte um Railway Volume aqui,
+# senao os arquivos somem a cada redeploy (filesystem efemero).
 RUN mkdir -p /app/uploads && chown -R node:node /app
 
 USER node
 
 EXPOSE 3000
 ENTRYPOINT ["/sbin/tini", "--"]
-CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
+CMD ["sh", "-c", "./node_modules/.bin/prisma migrate deploy && node dist/main"]

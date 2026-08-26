@@ -27,8 +27,8 @@ logs/
 Thumbs.db
 
 # Prisma
-prisma/migrations/**/migration_lock.toml
-
+# ATENCAO: prisma/migrations/ DEVE ser versionado — o deploy roda
+# "prisma migrate deploy", que depende desses arquivos.
 # Uploads (conteúdo é volátil, não versionar)
 uploads/**/*
 !uploads/**/.gitkeep

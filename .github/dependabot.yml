@@ -1,0 +1,32 @@
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: ['dependencies']
+    groups:
+      nestjs:
+        patterns: ['@nestjs/*']
+      prisma:
+        patterns: ['prisma', '@prisma/*']
+      types-e-lint:
+        patterns: ['@types/*', 'eslint*', '@typescript-eslint/*', 'prettier']
+    ignore:
+      # Majors exigem migracao manual — nao abrir PR automatico.
+      - dependency-name: '*'
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: monthly
+    labels: ['ci']
+
+  - package-ecosystem: docker
+    directory: '/'
+    schedule:
+      interval: monthly
+    labels: ['docker']

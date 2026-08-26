@@ -1,0 +1,109 @@
+name: Smoke Test pos-deploy
+
+# QUEM FAZ O DEPLOY NAO E ESTE WORKFLOW.
+#
+# O deploy e do proprio Railway, pela integracao com o GitHub:
+#   Service > Settings > Source > "Auto deploys when pushed to GitHub"
+#                              + "Wait for CI"  <-- precisa estar LIGADO
+#
+# Com "Wait for CI" ligado, o Railway so promove um deploy depois que as
+# GitHub Actions passarem. Isso substitui o `railway up` que existia aqui e
+# elimina a necessidade de guardar um RAILWAY_TOKEN nos secrets do repo.
+#
+# A verificacao de saude durante o deploy tambem e nativa: o railway.json
+# define healthcheckPath /api/health, e o Railway recusa promover um
+# deploy que nao responde, reiniciando conforme o restartPolicy.
+#
+# Este workflow existe so para confirmar, de fora, que o DOMINIO PUBLICO
+# esta servindo a API — coisa que o health check interno do Railway nao
+# cobre (ele testa o container, nao a borda/roteamento).
+
+on:
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: smoke-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: Health check do dominio publico
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
+    steps:
+      # LIMITACAO CONHECIDA — leia antes de confiar neste check.
+      #
+      # Este job nao consegue distinguir a versao que esta respondendo.
+      # /api/health devolve uma versao estatica ("0.1.0"), nao o commit.
+      # Se o deploy do Railway ainda estiver em andamento, o dominio pode
+      # estar servindo a VERSAO ANTERIOR, e o check passa sem ter validado
+      # o commit novo.
+      #
+      # A espera abaixo reduz a janela, mas nao a fecha. Para validar de
+      # verdade seria preciso o health devolver o SHA do commit (build arg
+      # no Dockerfile + campo no AppController) e comparar com o SHA que
+      # disparou este workflow.
+      #
+      # Ou seja: FALHA aqui e sinal confiavel de problema. SUCESSO e sinal
+      # fraco — nao prova que o commit novo esta no ar.
+      - name: Aguardar o Railway concluir o deploy
+        run: |
+          echo "Dando tempo para o Railway buildar e promover o deploy..."
+          sleep 120
+
+      - name: Health check
+        if: ${{ vars.RAILWAY_PUBLIC_URL != '' }}
+        env:
+          BASE_URL: ${{ vars.RAILWAY_PUBLIC_URL }}
+        run: |
+          set -uo pipefail
+          echo "Consultando ${BASE_URL}/api/health"
+
+          ok=0
+          for i in $(seq 1 30); do
+            body=$(curl -fsS --max-time 10 "${BASE_URL}/api/health" 2>/dev/null || true)
+            if echo "$body" | grep -q '"status":"ok"'; then
+              echo "saudavel na tentativa $i: $body"
+              ok=1
+              break
+            fi
+            echo "tentativa $i/30 — resposta: ${body:-<sem resposta>}"
+            sleep 10
+          done
+
+          {
+            echo "### Smoke test pos-deploy"
+            echo ""
+            echo "- URL: ${BASE_URL}/api/health"
+            if [ "$ok" = "1" ]; then
+              echo "- Resultado: **saudavel**"
+              echo ""
+              echo "> Atencao: este check nao identifica qual versao respondeu."
+              echo "> Ver a limitacao documentada em .github/workflows/cd-railway.yml"
+            else
+              echo "- Resultado: **falhou apos ~5min**"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$ok" != "1" ]; then
+            echo "::error::A API nao respondeu status ok. Verifique os logs no Railway."
+            exit 1
+          fi
+
+      - name: Aviso quando a URL nao esta configurada
+        if: ${{ vars.RAILWAY_PUBLIC_URL == '' }}
+        run: |
+          echo "::warning::vars.RAILWAY_PUBLIC_URL nao configurada — smoke test pulado."
+          echo "Defina em Settings > Secrets and variables > Actions > Variables."

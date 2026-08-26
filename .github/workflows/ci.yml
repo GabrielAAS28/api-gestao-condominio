@@ -1,0 +1,236 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Cancela runs antigos do mesmo PR/branch para nao gastar minutos a toa.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------
+  # 1) Qualidade estatica: lint, formatacao e tipos
+  # ---------------------------------------------------------------
+  quality:
+    name: Lint & Types
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      # `prisma validate` e `prisma generate` leem o datasource e falham com
+      # P1012 se DATABASE_URL nao existir, mesmo sem tocar em banco nenhum.
+      # Este valor e descartavel: nada aqui abre conexao.
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Evita que o GITHUB_TOKEN fique gravado em .git/config,
+          # onde qualquer step seguinte (inclusive postinstall de
+          # dependencia) conseguiria ler.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # O Prisma Client e gerado, nao versionado. Sem isso o TS nao acha os tipos.
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: ESLint (bloqueia merge)
+        run: npm run lint:ci
+
+      # Advisory: o codebase ainda nao passou por uma normalizacao do Prettier.
+      # Depois de rodar `npm run format` uma vez e commitar, remova o
+      # `continue-on-error` abaixo para tornar a formatacao obrigatoria.
+      - name: Prettier (informativo)
+        run: npm run format:check
+        continue-on-error: true
+
+      - name: TypeScript typecheck
+        run: npm run typecheck
+
+      - name: Validar schema do Prisma
+        run: npx prisma validate
+
+  # ---------------------------------------------------------------
+  # 2) Testes (unitarios + e2e) contra um Postgres real
+  # ---------------------------------------------------------------
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: condigtal_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/condigtal_test?schema=public
+      NODE_ENV: test
+      JWT_ACCESS_SECRET: ci-access-secret
+      JWT_REFRESH_SECRET: ci-refresh-secret
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_EXPIRES_IN: 7d
+      CORS_ORIGINS: '*'
+      UPLOAD_DIR: ./uploads
+
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Evita que o GITHUB_TOKEN fique gravado em .git/config,
+          # onde qualquer step seguinte (inclusive postinstall de
+          # dependencia) conseguiria ler.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      # Isto tambem valida que as migrations versionadas realmente aplicam
+      # do zero — o mesmo comando que roda no boot do container em producao.
+      - name: Aplicar migrations (valida o deploy)
+        run: npx prisma migrate deploy
+
+      - name: Testes unitarios
+        run: npm run test:cov
+
+      - name: Testes e2e
+        run: npm run test:e2e
+
+      - name: Upload cobertura
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  # ---------------------------------------------------------------
+  # 3) Build da aplicacao
+  # ---------------------------------------------------------------
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Evita que o GITHUB_TOKEN fique gravado em .git/config,
+          # onde qualquer step seguinte (inclusive postinstall de
+          # dependencia) conseguiria ler.
+          persist-credentials: false
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma Client
+        run: npx prisma generate
+
+      - name: Nest build
+        run: npm run build
+
+      - name: Conferir artefato de saida
+        run: test -f dist/main.js || (echo "dist/main.js nao foi gerado" && exit 1)
+
+  # ---------------------------------------------------------------
+  # 4) Build da imagem Docker (mesmo caminho que o Railway usa)
+  # ---------------------------------------------------------------
+  docker:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Evita que o GITHUB_TOKEN fique gravado em .git/config,
+          # onde qualquer step seguinte (inclusive postinstall de
+          # dependencia) conseguiria ler.
+          persist-credentials: false
+
+      - name: Setup Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build da imagem (sem push)
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: condigtal-api:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Smoke test da imagem
+        run: |
+          # A imagem sobe, tenta migrar e falha ao conectar no banco (esperado).
+          # O que validamos aqui e que o entrypoint e o dist existem e executam.
+          docker run --rm --entrypoint sh condigtal-api:ci -c \
+            'test -f dist/main.js && test -x ./node_modules/.bin/prisma && echo "imagem OK"'
+
+  # ---------------------------------------------------------------
+  # 5) Gate unico: use ESTE check na branch protection
+  # ---------------------------------------------------------------
+  ci-gate:
+    name: CI Gate
+    runs-on: ubuntu-latest
+    needs: [quality, test, build, docker]
+    if: always()
+    steps:
+      - name: Falhar se qualquer job anterior falhou
+        run: |
+          echo "quality: ${{ needs.quality.result }}"
+          echo "test:    ${{ needs.test.result }}"
+          echo "build:   ${{ needs.build.result }}"
+          echo "docker:  ${{ needs.docker.result }}"
+          if [ "${{ needs.quality.result }}" != "success" ] || \
+             [ "${{ needs.test.result }}" != "success" ] || \
+             [ "${{ needs.build.result }}" != "success" ] || \
+             [ "${{ needs.docker.result }}" != "success" ]; then
+            echo "::error::Um ou mais checks de CI falharam. Merge bloqueado."
+            exit 1
+          fi
+          echo "Todos os checks passaram."
