@@ -26,6 +26,13 @@ jobs:
     name: Lint & Types
     runs-on: ubuntu-latest
     timeout-minutes: 15
+
+    env:
+      # `prisma validate` e `prisma generate` leem o datasource e falham com
+      # P1012 se DATABASE_URL nao existir, mesmo sem tocar em banco nenhum.
+      # Este valor e descartavel: nada aqui abre conexao.
+      DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public
+
     steps:
       - uses: actions/checkout@v4
 

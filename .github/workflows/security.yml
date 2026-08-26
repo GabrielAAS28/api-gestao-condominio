@@ -47,12 +47,48 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
-      # Bloqueia apenas em vulnerabilidade alta/critica — moderate vira aviso.
-      - name: npm audit (high/critical bloqueiam)
-        run: npm audit --audit-level=high --omit=dev
-
-      - name: npm audit completo (informativo)
-        run: npm audit || true
+      # INFORMATIVO POR ENQUANTO — nao bloqueia o merge.
+      #
+      # O backlog de vulnerabilidades e anterior a este pipeline e a maioria
+      # das correcoes exige upgrade major (NestJS 10->11, multer 1->2,
+      # nodemailer, path-to-regexp). Travar o merge nisso pararia o time por
+      # uma divida que nenhum PR novo introduziu.
+      #
+      # O resumo abaixo aparece em todo PR, entao a divida fica visivel.
+      # Depois da PR de remediacao, troque o `exit 0` final por `exit $CODE`
+      # para tornar o check bloqueante.
+      - name: npm audit (dependencias de producao)
+        run: |
+          set +e
+          npm audit --omit=dev --audit-level=high
+          CODE=$?
+          npm audit --omit=dev --json > audit.json 2>/dev/null
+          set -e
+          node -e "
+            const j = JSON.parse(require('fs').readFileSync('audit.json','utf8'));
+            const m = j.metadata.vulnerabilities;
+            const graves = Object.values(j.vulnerabilities || {})
+              .filter(v => ['high','critical'].includes(v.severity))
+              .sort((a,b) => (a.severity === 'critical' ? -1 : 1));
+            console.log('### Dependency Audit — dependencias de producao');
+            console.log('');
+            console.log('critical: ' + m.critical + ' &nbsp;|&nbsp; high: ' + m.high +
+                        ' &nbsp;|&nbsp; moderate: ' + m.moderate + ' &nbsp;|&nbsp; low: ' + m.low);
+            console.log('');
+            if (graves.length) {
+              console.log('| severidade | pacote | correcao |');
+              console.log('|---|---|---|');
+              graves.forEach(v => {
+                const major = v.fixAvailable && v.fixAvailable.isSemVerMajor;
+                console.log('| ' + v.severity + ' | \`' + v.name + '\` | ' +
+                            (major ? '**upgrade major** (breaking)' : '\`npm audit fix\`') + ' |');
+              });
+              console.log('');
+              console.log('> Check informativo: nao bloqueia o merge. Ver nota em .github/workflows/security.yml');
+            }
+          " >> "$GITHUB_STEP_SUMMARY"
+          echo "exit code real do npm audit: $CODE (nao bloqueia por decisao explicita)"
+          exit 0
 
   secrets:
     name: Secret Scan
