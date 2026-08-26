@@ -10,10 +10,11 @@ RUN apk add --no-cache openssl
 
 # Instala deps (cache de layer). O lockfile e obrigatorio para builds reproduziveis.
 COPY package*.json ./
-COPY prisma ./prisma
 RUN npm ci
 
-# Copia o resto e faz o build
+# prisma/ entra DEPOIS do npm ci de proposito: nao ha postinstall que dependa
+# dele, entao mexer numa migration nao precisa invalidar a layer de deps.
+COPY prisma ./prisma
 COPY tsconfig*.json nest-cli.json ./
 COPY src ./src
 RUN npx prisma generate && npm run build
@@ -39,10 +40,11 @@ RUN apk add --no-cache openssl tini
 # (e nao em devDependencies) justamente para que `prisma migrate deploy`
 # funcione no boot do container sem baixar nada do registry.
 COPY package*.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
+# Mesma logica do builder: prisma/ depois das deps, para preservar o cache.
 COPY prisma ./prisma
-RUN npm ci --omit=dev \
- && ./node_modules/.bin/prisma generate \
- && npm cache clean --force
+RUN ./node_modules/.bin/prisma generate
 
 # Copia o build e o Prisma Client gerado
 COPY --from=builder /app/dist ./dist

@@ -31,8 +31,6 @@ reviews:
     - '!**/coverage/**'
     - '!**/uploads/**'
     - '!**/package-lock.json'
-    - '!**/prisma/migrations/**'
-
   path_instructions:
     - path: 'src/**/*.ts'
       instructions: >-
