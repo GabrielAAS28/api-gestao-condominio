@@ -42,6 +42,10 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          # Evita que o GITHUB_TOKEN fique gravado em .git/config,
+          # onde qualquer step seguinte (inclusive postinstall de
+          # dependencia) conseguiria ler.
+          persist-credentials: false
           # Em workflow_run o ref default e o da branch base; fixamos o SHA
           # exato que passou no CI para deployar o commit certo.
           ref: ${{ github.event.workflow_run.head_sha || github.ref }}
