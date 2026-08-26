@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.6
 
 # --------- Stage 1: Build ---------
-FROM node:20-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
@@ -29,7 +29,7 @@ RUN npx tsc prisma/seed.ts \
     --moduleResolution node
 
 # --------- Stage 2: Runtime ---------
-FROM node:20-alpine AS runner
+FROM node:26-alpine AS runner
 
 WORKDIR /app
 ENV NODE_ENV=production
