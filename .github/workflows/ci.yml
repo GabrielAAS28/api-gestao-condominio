@@ -34,7 +34,7 @@ jobs:
       DATABASE_URL: postgresql://placeholder:placeholder@localhost:5432/placeholder?schema=public
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Evita que o GITHUB_TOKEN fique gravado em .git/config,
           # onde qualquer step seguinte (inclusive postinstall de
@@ -104,7 +104,7 @@ jobs:
       UPLOAD_DIR: ./uploads
 
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Evita que o GITHUB_TOKEN fique gravado em .git/config,
           # onde qualquer step seguinte (inclusive postinstall de
@@ -151,7 +151,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Evita que o GITHUB_TOKEN fique gravado em .git/config,
           # onde qualquer step seguinte (inclusive postinstall de
@@ -184,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # Evita que o GITHUB_TOKEN fique gravado em .git/config,
           # onde qualquer step seguinte (inclusive postinstall de
